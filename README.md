@@ -12,7 +12,7 @@ every program in the library is genuine, complete, and compiles/runs as-is.
 No build, no server, no dependencies:
 
 ```
-open speed-coder/index.html      # or just double-click it
+open index.html      # or just double-click it
 ```
 
 ## How it works
