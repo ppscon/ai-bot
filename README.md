@@ -9,7 +9,9 @@ every program in the library is genuine, complete, and compiles/runs as-is.
 
 ## Run it
 
-No build, no server, no dependencies:
+**Live:** https://ppscon.github.io/ai-bot/
+
+Or locally — no build, no server, no dependencies:
 
 ```
 open index.html      # or just double-click it
