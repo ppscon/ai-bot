@@ -907,7 +907,7 @@ function matchProgram(description) {
     });
     if (score > bestScore) { best = p; bestScore = score; }
   });
-  return best || PROGRAMS[Math.floor(Math.random() * PROGRAMS.length)];
+  return best;  // null when nothing matches — caller decides what to do
 }
 
 /* =====================================================================
@@ -956,7 +956,7 @@ async function generateWithAI(description, apiKey) {
       model: "claude-opus-5",
       max_tokens: 8192,
       output_config: {
-        effort: "medium",
+        effort: "low",
         format: {
           type: "json_schema",
           schema: {
@@ -971,14 +971,16 @@ async function generateWithAI(description, apiKey) {
           },
         },
       },
-      system: "You write small, complete, runnable programs for a fun " +
-        "fake-typing app. Given a description, produce ONE self-contained " +
-        "program (roughly 30-120 lines) in python (3, stdlib only), " +
-        "javascript (Node, no dependencies), c (C89/C99, compiles with cc), " +
-        "or html (single file with inline CSS/JS) - whichever fits best. " +
-        "It must run as-is with no external dependencies. Include a short " +
-        "comment header saying what it does. Prefer visually or " +
-        "interactively fun results.",
+      system: "You write short, complete, runnable code snippets for a " +
+        "fake-typing app. Write the SHORTEST clean program that does " +
+        "EXACTLY what the user describes - follow the description " +
+        "literally and add nothing they did not ask for: no extra " +
+        "features, no animations, no styling flourishes, no configuration " +
+        "options. Typically 10-40 lines. Choose the best-fitting language: " +
+        "python (3, stdlib only), javascript (Node, no dependencies), " +
+        "c (compiles with cc), or html (one file, inline CSS/JS; use html " +
+        "whenever they describe a web page or anything visual). It must " +
+        "run as-is. Start with a one-line comment saying what it does.",
       messages: [{ role: "user", content: description }],
     }),
   });
@@ -1043,6 +1045,15 @@ function start() {
   let prog = PROGRAMS.find(function (p) { return p.id === selectedId; });
   if (!prog) {
     prog = matchProgram(description);
+    if (!prog) {
+      if (description.trim()) {
+        // don't start a random program the user didn't describe
+        setAiStatus("No library program matches that description - tap " +
+          "✦ ASK AI to have Claude write it, or pick a program above.", "err");
+        return;
+      }
+      prog = PROGRAMS[Math.floor(Math.random() * PROGRAMS.length)];
+    }
     selectedId = prog.id;
   }
   loadProgram(prog, description);
