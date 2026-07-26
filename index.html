@@ -113,14 +113,6 @@
   .prog .d { font-size: 11.5px; color: var(--dim); margin-top: 3px; }
   .prog .lang { float: right; font-size: 10.5px; color: var(--num); }
 
-  #boostRow { display: flex; gap: 8px; align-items: center; }
-  .boost {
-    border: 1px solid #1e1e2c; border-radius: 6px; background: #0b0b12;
-    color: var(--fg); font: inherit; font-size: 13px;
-    padding: 6px 14px; cursor: pointer;
-  }
-  .boost.sel { border-color: var(--accent); color: var(--accent); }
-
   /* ---------- Ask AI ---------- */
   #aiRow { display: flex; gap: 8px; margin-top: 8px; }
   #apiKey {
@@ -258,22 +250,15 @@
     <label class="field">2 · Pick a program (or let your description choose)</label>
     <div id="programs"></div>
 
-    <label class="field">2b · …or ask AI to write exactly what you described</label>
+    <label class="field">3 · …or ask AI to write exactly what you described</label>
     <div id="aiRow">
       <input id="apiKey" type="password" placeholder="Claude API key (sk-ant-…) — stays in your browser" spellcheck="false" autocomplete="off">
       <button id="aiBtn">✦ ASK AI</button>
     </div>
     <div id="aiStatus"></div>
 
-    <label class="field">3 · Characters per keystroke</label>
-    <div id="boostRow">
-      <button class="boost" data-b="1">1 · honest</button>
-      <button class="boost sel" data-b="3">3 · fast</button>
-      <button class="boost" data-b="6">6 · wizard</button>
-    </div>
-
     <button id="startBtn">START TYPING</button>
-    <div class="hint">Backspace un-types · ESC returns here · code always compiles</div>
+    <div class="hint">One keystroke = one character · Backspace un-types · ESC returns here</div>
   </div>
 </div>
 
@@ -800,7 +785,6 @@ let revealed = 0;       // chars revealed so far
 let tokenIdx = 0;       // current token being revealed
 let tokenPos = 0;       // chars of current token already out
 let currentSpan = null; // live span we're appending into
-let boost = 3;
 let running = false;
 let finished = false;
 let startTime = null;
@@ -825,7 +809,7 @@ function loadProgram(prog, description) {
   tokens = tokenize(source, prog.lang);
   totalChars = source.length;
   revealed = 0; tokenIdx = 0; tokenPos = 0; currentSpan = null;
-  finished = false; startTime = null; pendingChars = 0;
+  finished = false; startTime = null;
   codeEl.innerHTML = "";
   stFile.textContent = "~/projects/" + prog.file;
   stLang.textContent = prog.lang;
@@ -840,27 +824,8 @@ function newSpan(cls) {
   return s;
 }
 
-/* Keystrokes queue characters; a jittered drain loop reveals them one at
-   a time so the code flows out at a fast-but-human pace instead of
-   teleporting. Backlogged queues drain in bigger steps to catch up. */
-let pendingChars = 0;
-let draining = false;
-
-function revealChars(count) {
-  if (finished) return;
-  pendingChars += count;
-  if (!draining) drainLoop();
-}
-
-function drainLoop() {
-  if (pendingChars <= 0 || finished) { draining = false; return; }
-  draining = true;
-  const step = pendingChars > 120 ? 4 : pendingChars > 60 ? 2 : 1;
-  pendingChars -= step;
-  revealNow(step);
-  setTimeout(drainLoop, 14 + Math.random() * 26);
-}
-
+/* One keystroke reveals exactly one character, instantly — the output
+   is perfectly synchronized with the typist's real speed. */
 function revealNow(count) {
   if (finished) return;
   if (!startTime) startTime = Date.now();
@@ -882,7 +847,6 @@ function revealNow(count) {
 
 function unrevealChars(count) {
   if (finished || revealed === 0) return;
-  pendingChars = 0;  // cancel queued reveals before un-typing
   revealed = Math.max(0, revealed - count);
   // rebuild up to `revealed` — backspace is rare, full rebuild is fine
   codeEl.innerHTML = "";
@@ -964,16 +928,6 @@ PROGRAMS.forEach(function (p) {
     selectedId = p.id;
   });
   programsEl.appendChild(div);
-});
-
-document.querySelectorAll(".boost").forEach(function (btn) {
-  btn.addEventListener("click", function () {
-    document.querySelectorAll(".boost").forEach(function (el) {
-      el.classList.remove("sel");
-    });
-    btn.classList.add("sel");
-    boost = parseInt(btn.dataset.b, 10);
-  });
 });
 
 /* =====================================================================
@@ -1100,7 +1054,6 @@ function start() {
 
 function openMenu() {
   running = false;
-  pendingChars = 0;
   closeDemo();
   overlay.classList.remove("hidden");
   ghost.blur();  // dismiss the mobile keyboard
@@ -1476,10 +1429,9 @@ function focusGhost() {
 ghost.addEventListener("input", function (e) {
   if (!running) { ghost.value = GHOST_PAD; return; }
   if (e.inputType === "deleteContentBackward") {
-    unrevealChars(boost);
+    unrevealChars(1);
   } else {
-    const n = e.data ? e.data.length : 1;
-    revealChars(boost * Math.max(1, n));
+    revealNow(1);  // even a swipe-typed word counts as one keystroke
   }
   ghost.value = GHOST_PAD;
   ghost.setSelectionRange(ghost.value.length, ghost.value.length);
@@ -1513,13 +1465,13 @@ document.addEventListener("keydown", function (e) {
   if (e.metaKey || e.ctrlKey || e.altKey) return; // let shortcuts through
   if (e.key === "Backspace") {
     e.preventDefault();
-    unrevealChars(boost);
+    unrevealChars(1);
     return;
   }
-  // any printable key, Enter, Space, Tab — all produce code
+  // any printable key, Enter, Space, Tab — all produce exactly one character
   if (e.key.length === 1 || e.key === "Enter" || e.key === "Tab") {
     e.preventDefault();
-    revealChars(boost);
+    revealNow(1);
   }
 });
 </script>

@@ -28,12 +28,10 @@ open index.html      # or just double-click it
    Claude writes a real, runnable program matching your description —
    "a web page with a bouncing ball", "an app that converts binary to
    words" — in Python, JavaScript, C, or HTML, and then you "type" it.
-4. **Choose your boost** — characters revealed per keystroke
-   (1 = honest, 3 = fast, 6 = wizard).
-5. Hit **START TYPING** and mash the keyboard.
+4. Hit **START TYPING** and type.
 
-- Code flows out at a **fast-but-human pace** — keystrokes queue characters
-  that drain with natural jitter, so it looks typed, not teleported
+- **One keystroke = one character** — the code appears at exactly the
+  speed you type, perfectly synchronized with your fingers
 - **Backspace** un-types (for that authentic "fixing a typo" look)
 - **ESC** returns to the menu (**☰ menu** button on phones)
 - Live **WPM** and **% written** in the status bar
