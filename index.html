@@ -170,6 +170,48 @@
   #menuBtn { cursor: pointer; }
   #menuBtn:hover { color: var(--fg); text-decoration: underline; }
 
+  /* ---------- run overlay: watch the program actually work ---------- */
+  #runOverlay {
+    position: fixed; inset: 0; z-index: 20;
+    background: #000;
+    display: flex; flex-direction: column;
+  }
+  #runOverlay.hidden { display: none; }
+  #runHead {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid #16161f;
+    font-size: 13px; color: var(--dim);
+    flex: none;
+  }
+  #runCmd { color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #runClose {
+    margin-left: auto; cursor: pointer; flex: none;
+    color: var(--fg); font-size: 13px;
+    padding: 5px 12px;
+    border: 1px solid #1e1e2c; border-radius: 6px; background: #0b0b12;
+  }
+  #runClose:hover { border-color: var(--accent); }
+  #runBody {
+    flex: 1; min-height: 0;
+    display: flex; align-items: center; justify-content: center;
+    overflow: auto; padding: 10px;
+  }
+  #runBody canvas { image-rendering: pixelated; touch-action: none; }
+  #runBody pre {
+    margin: 0; font-size: 11px; line-height: 1.12;
+    color: #9cffb0; white-space: pre;
+  }
+  #runBody iframe { width: 100%; height: 100%; border: none; background: #fff; }
+
+  .runBtn {
+    display: inline-block;
+    color: #000; background: var(--accent);
+    padding: 2px 12px; border-radius: 4px;
+    cursor: pointer; font-weight: 700;
+  }
+  .runBtn:hover { filter: brightness(1.15); }
+
   /* ---------- small screens ---------- */
   @media (max-width: 640px) {
     #screen { padding: 16px 14px; font-size: 14px; }
@@ -186,6 +228,14 @@
 
 <input id="ghost" type="text" autocapitalize="off" autocorrect="off"
        autocomplete="off" spellcheck="false" aria-hidden="true" tabindex="-1">
+
+<div id="runOverlay" class="hidden">
+  <div id="runHead">
+    <span id="runCmd">$</span>
+    <span id="runClose">✕ close</span>
+  </div>
+  <div id="runBody"></div>
+</div>
 
 <div id="statusbar">
   <span id="st-file">—</span>
@@ -775,7 +825,7 @@ function loadProgram(prog, description) {
   tokens = tokenize(source, prog.lang);
   totalChars = source.length;
   revealed = 0; tokenIdx = 0; tokenPos = 0; currentSpan = null;
-  finished = false; startTime = null;
+  finished = false; startTime = null; pendingChars = 0;
   codeEl.innerHTML = "";
   stFile.textContent = "~/projects/" + prog.file;
   stLang.textContent = prog.lang;
@@ -790,7 +840,28 @@ function newSpan(cls) {
   return s;
 }
 
+/* Keystrokes queue characters; a jittered drain loop reveals them one at
+   a time so the code flows out at a fast-but-human pace instead of
+   teleporting. Backlogged queues drain in bigger steps to catch up. */
+let pendingChars = 0;
+let draining = false;
+
 function revealChars(count) {
+  if (finished) return;
+  pendingChars += count;
+  if (!draining) drainLoop();
+}
+
+function drainLoop() {
+  if (pendingChars <= 0 || finished) { draining = false; return; }
+  draining = true;
+  const step = pendingChars > 120 ? 4 : pendingChars > 60 ? 2 : 1;
+  pendingChars -= step;
+  revealNow(step);
+  setTimeout(drainLoop, 14 + Math.random() * 26);
+}
+
+function revealNow(count) {
   if (finished) return;
   if (!startTime) startTime = Date.now();
   let left = count;
@@ -811,13 +882,14 @@ function revealChars(count) {
 
 function unrevealChars(count) {
   if (finished || revealed === 0) return;
+  pendingChars = 0;  // cancel queued reveals before un-typing
   revealed = Math.max(0, revealed - count);
   // rebuild up to `revealed` — backspace is rare, full rebuild is fine
   codeEl.innerHTML = "";
   currentSpan = null; tokenIdx = 0; tokenPos = 0;
   let left = revealed;
   revealed = 0;
-  if (left > 0) revealChars(left);
+  if (left > 0) revealNow(left);
   else updateStatus();
 }
 
@@ -831,20 +903,29 @@ function updateStatus() {
   }
 }
 
+function runCommandFor(prog) {
+  return prog.lang === "c"
+    ? "cc -O2 -o app " + prog.file + " && ./app"
+    : prog.lang === "html"
+    ? "open " + prog.file
+    : (prog.lang === "python" ? "python3 " : "node ") + prog.file;
+}
+
 function complete() {
   finished = true;
   const done = document.createElement("div");
   const prog = currentProg;
-  const runCmd = prog.lang === "c"
-    ? "cc -O2 -o app " + prog.file + " && ./app"
-    : prog.lang === "html"
-    ? "open " + prog.file + "   # runs in any browser"
-    : (prog.lang === "python" ? "python3 " : "node ") + prog.file;
   done.innerHTML =
-    '\n\n<span class="buildline dim">$ ' + runCmd + '</span>' +
+    '\n\n<span class="buildline dim">$ ' + runCommandFor(prog) + '</span>' +
     '\n<span class="buildline">✓ compiled clean — 0 errors, 0 warnings</span>' +
+    (hasDemo(prog)
+      ? '\n<span class="buildline"><span class="runBtn" id="runBtn">▶ RUN IT</span> <span class="buildline dim">watch it work (or press Enter)</span></span>'
+      : '') +
     '\n<span class="buildline dim">press ESC to write another program</span>';
   codeEl.appendChild(done);
+  if (hasDemo(prog)) {
+    document.getElementById("runBtn").addEventListener("click", runDemo);
+  }
   screen.scrollTop = screen.scrollHeight;
 }
 
@@ -1019,6 +1100,8 @@ function start() {
 
 function openMenu() {
   running = false;
+  pendingChars = 0;
+  closeDemo();
   overlay.classList.remove("hidden");
   ghost.blur();  // dismiss the mobile keyboard
   // deselect so a fresh description can re-match next time
@@ -1027,6 +1110,347 @@ function openMenu() {
   });
   selectedId = null;
 }
+
+/* =====================================================================
+   Run overlay — the payoff: the finished program actually works.
+   Library programs get faithful JS re-implementations; AI-written HTML
+   runs for real in a sandboxed iframe.
+   ===================================================================== */
+const runOverlay = document.getElementById("runOverlay");
+const runBody = document.getElementById("runBody");
+const runCmdEl = document.getElementById("runCmd");
+let demoCleanup = null;
+
+function hasDemo(prog) {
+  return !!DEMOS[prog.id] || prog.lang === "html";
+}
+
+function fitSquare() {
+  return Math.min(runBody.clientWidth, runBody.clientHeight) - 8;
+}
+
+function makeCanvas(w, h) {
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  runBody.appendChild(c);
+  return c;
+}
+
+function runDemo() {
+  const prog = currentProg;
+  if (!prog || !finished || !hasDemo(prog)) return;
+  ghost.blur();  // free the screen (and hide the mobile keyboard)
+  runOverlay.classList.remove("hidden");
+  runBody.innerHTML = "";
+  runCmdEl.textContent = "$ " + runCommandFor(prog);
+  let demoKeys = null;
+
+  function onKey(e) {
+    e.stopPropagation();  // don't let the typing handler see demo keys
+    if (e.key === "Escape") { closeDemo(); return; }
+    if (demoKeys) demoKeys(e);
+  }
+  document.addEventListener("keydown", onKey, true);
+
+  let innerCleanup = null;
+  if (DEMOS[prog.id]) {
+    const d = DEMOS[prog.id]();
+    innerCleanup = d.cleanup;
+    demoKeys = d.keys || null;
+  } else {
+    // AI-generated HTML: run it for real
+    const frame = document.createElement("iframe");
+    frame.setAttribute("sandbox", "allow-scripts");
+    frame.srcdoc = prog.code;
+    runBody.appendChild(frame);
+  }
+
+  demoCleanup = function () {
+    document.removeEventListener("keydown", onKey, true);
+    if (innerCleanup) innerCleanup();
+  };
+}
+
+function closeDemo() {
+  if (demoCleanup) { demoCleanup(); demoCleanup = null; }
+  runBody.innerHTML = "";
+  runOverlay.classList.add("hidden");
+}
+document.getElementById("runClose").addEventListener("click", closeDemo);
+
+/* ---- the demos ---- */
+const DEMOS = {
+
+  life: function () {
+    const size = fitSquare();
+    const cell = 7;
+    const W = Math.max(20, Math.floor(size / cell));
+    const H = W;
+    const cv = makeCanvas(W * cell, H * cell);
+    const ctx = cv.getContext("2d");
+    let grid = [];
+    for (let y = 0; y < H; y++) {
+      grid.push([]);
+      for (let x = 0; x < W; x++) grid[y].push(Math.random() < 0.25);
+    }
+    function step() {
+      const next = [];
+      for (let y = 0; y < H; y++) {
+        next.push([]);
+        for (let x = 0; x < W; x++) {
+          let n = 0;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            if (dx || dy) n += grid[(y + dy + H) % H][(x + dx + W) % W] ? 1 : 0;
+          }
+          next[y].push(n === 3 || (grid[y][x] && n === 2));
+        }
+      }
+      grid = next;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.fillStyle = "#39ff9b";
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        if (grid[y][x]) ctx.fillRect(x * cell, y * cell, cell - 1, cell - 1);
+      }
+    }
+    step();
+    const timer = setInterval(step, 110);
+    return { cleanup: function () { clearInterval(timer); } };
+  },
+
+  snake: function () {
+    const size = fitSquare();
+    const N = 21;
+    const cell = Math.max(10, Math.floor(size / N));
+    const cv = makeCanvas(N * cell, N * cell);
+    const ctx = cv.getContext("2d");
+    let snake, dir, nextDir, food, score, dead, timer;
+
+    function reset() {
+      snake = [[10, 12], [10, 13], [10, 14]];
+      dir = [0, -1]; nextDir = dir;
+      score = 0; dead = false;
+      placeFood();
+    }
+    function placeFood() {
+      do {
+        food = [1 + Math.floor(Math.random() * (N - 2)),
+                1 + Math.floor(Math.random() * (N - 2))];
+      } while (snake.some(function (s) { return s[0] === food[0] && s[1] === food[1]; }));
+    }
+    function tick() {
+      if (dead) return;
+      dir = nextDir;
+      const head = [snake[0][0] + dir[0], snake[0][1] + dir[1]];
+      const hitSelf = snake.some(function (s) { return s[0] === head[0] && s[1] === head[1]; });
+      if (head[0] <= 0 || head[0] >= N - 1 || head[1] <= 0 || head[1] >= N - 1 || hitSelf) {
+        dead = true; draw(); return;
+      }
+      snake.unshift(head);
+      if (head[0] === food[0] && head[1] === food[1]) { score++; placeFood(); }
+      else snake.pop();
+      draw();
+    }
+    function draw() {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.strokeStyle = "#2a2a3a";
+      ctx.strokeRect(cell / 2, cell / 2, (N - 1) * cell, (N - 1) * cell);
+      ctx.fillStyle = "#ff5ea0";
+      ctx.fillRect(food[1] * cell + 2, food[0] * cell + 2, cell - 4, cell - 4);
+      snake.forEach(function (s, i) {
+        ctx.fillStyle = i === 0 ? "#d8ffe9" : "#39ff9b";
+        ctx.fillRect(s[1] * cell + 1, s[0] * cell + 1, cell - 2, cell - 2);
+      });
+      ctx.fillStyle = "#5f6a7d";
+      ctx.font = "bold " + Math.max(11, cell * 0.7) + "px monospace";
+      ctx.fillText("score: " + score, cell, cell * 0.2 + 10);
+      if (dead) {
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(0, 0, cv.width, cv.height);
+        ctx.fillStyle = "#ff5ea0";
+        ctx.textAlign = "center";
+        ctx.fillText("GAME OVER — score " + score, cv.width / 2, cv.height / 2 - 10);
+        ctx.fillStyle = "#9cffb0";
+        ctx.fillText("tap or press space to restart", cv.width / 2, cv.height / 2 + 14);
+        ctx.textAlign = "left";
+      }
+    }
+    function steer(dy, dx) {
+      if (dead) return;
+      if (dy === -dir[0] && dx === -dir[1]) return; // no 180s
+      nextDir = [dy, dx];
+    }
+    function keys(e) {
+      if (dead && (e.key === " " || e.key === "Enter")) { reset(); return; }
+      if (e.key === "ArrowUp" || e.key === "w") steer(-1, 0);
+      else if (e.key === "ArrowDown" || e.key === "s") steer(1, 0);
+      else if (e.key === "ArrowLeft" || e.key === "a") steer(0, -1);
+      else if (e.key === "ArrowRight" || e.key === "d") steer(0, 1);
+      e.preventDefault();
+    }
+    // swipe steering for phones
+    let tx = null, ty = null;
+    cv.addEventListener("touchstart", function (e) {
+      if (dead) { reset(); return; }
+      tx = e.touches[0].clientX; ty = e.touches[0].clientY;
+    }, { passive: true });
+    cv.addEventListener("touchend", function (e) {
+      if (tx === null) return;
+      const dx = e.changedTouches[0].clientX - tx;
+      const dy = e.changedTouches[0].clientY - ty;
+      tx = ty = null;
+      if (Math.abs(dx) < 18 && Math.abs(dy) < 18) return;
+      if (Math.abs(dx) > Math.abs(dy)) steer(0, dx > 0 ? 1 : -1);
+      else steer(dy > 0 ? 1 : -1, 0);
+    }, { passive: true });
+    cv.addEventListener("click", function () { if (dead) reset(); });
+
+    reset();
+    draw();
+    timer = setInterval(tick, 115);
+    return { cleanup: function () { clearInterval(timer); }, keys: keys };
+  },
+
+  mandelbrot: function () {
+    // same math, same shades as mandelbrot.c
+    const COLS = 100, ROWS = 38, MAX_ITER = 96;
+    const SHADES = " .:-=+*#%@";
+    let out = "";
+    for (let row = 0; row < ROWS; row++) {
+      const ci = -1.2 + 2.4 * row / (ROWS - 1);
+      for (let col = 0; col < COLS; col++) {
+        const cr = -2.1 + 3.0 * col / (COLS - 1);
+        let zr = 0, zi = 0, zr2 = 0, zi2 = 0, i = 0;
+        for (; i < MAX_ITER; i++) {
+          zi = 2 * zr * zi + ci;
+          zr = zr2 - zi2 + cr;
+          zr2 = zr * zr; zi2 = zi * zi;
+          if (zr2 + zi2 > 4) break;
+        }
+        out += SHADES[i === MAX_ITER ? 9 : i % 10];
+      }
+      out += "\n";
+    }
+    const pre = document.createElement("pre");
+    pre.textContent = out;
+    runBody.appendChild(pre);
+    return { cleanup: function () {} };
+  },
+
+  matrix: function () {
+    const cv = makeCanvas(runBody.clientWidth - 8, runBody.clientHeight - 8);
+    const ctx = cv.getContext("2d");
+    const GLYPHS = "01ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄABCDEFXYZ<>*+-=";
+    const fs = 16;
+    const cols = Math.floor(cv.width / fs);
+    const drops = [];
+    for (let i = 0; i < cols; i++) drops.push(Math.random() * -40);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    function frame() {
+      ctx.fillStyle = "rgba(0,0,0,0.08)";
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.font = fs + "px monospace";
+      for (let i = 0; i < cols; i++) {
+        const g = GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
+        ctx.fillStyle = "#e8ffe8";
+        ctx.fillText(g, i * fs, drops[i] * fs);
+        ctx.fillStyle = "#0f8";
+        ctx.fillText(GLYPHS[Math.floor(Math.random() * GLYPHS.length)],
+                     i * fs, (drops[i] - 1) * fs);
+        if (drops[i] * fs > cv.height && Math.random() > 0.975) drops[i] = 0;
+        drops[i] += 0.5 + Math.random() * 0.3;
+      }
+    }
+    const timer = setInterval(frame, 50);
+    return { cleanup: function () { clearInterval(timer); } };
+  },
+
+  raytracer: function () {
+    // JS port of raytracer.py: same spheres, same light, same shading
+    const W = 320, H = 240;
+    const LIGHT = norm([-0.6, 0.8, -0.5]);
+    const SPHERES = [
+      [0.0, -0.2, 3.0, 0.8, [255, 80, 120]],
+      [-1.4, 0.1, 3.6, 0.6, [90, 200, 255]],
+      [1.3, 0.0, 3.4, 0.7, [255, 210, 80]],
+    ];
+    function norm(v) {
+      const n = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+      return [v[0] / n, v[1] / n, v[2] / n];
+    }
+    function dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+    function hit(d, s) {
+      const oc = [-s[0], -s[1], -s[2]];
+      const b = 2 * dot(oc, d);
+      const c = dot(oc, oc) - s[3] * s[3];
+      const disc = b * b - 4 * c;
+      if (disc < 0) return null;
+      const t = (-b - Math.sqrt(disc)) / 2;
+      return t > 0.001 ? t : null;
+    }
+    const cv = makeCanvas(W, H);
+    const scale = Math.min((runBody.clientWidth - 8) / W, (runBody.clientHeight - 8) / H);
+    cv.style.width = Math.floor(W * scale) + "px";
+    cv.style.height = Math.floor(H * scale) + "px";
+    const ctx = cv.getContext("2d");
+    const img = ctx.createImageData(W, H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const d = norm([(2 * x / W - 1) * (W / H), 1 - 2 * y / H, 1.6]);
+        let best = Infinity, nearest = null;
+        for (const s of SPHERES) {
+          const t = hit(d, s);
+          if (t !== null && t < best) { best = t; nearest = s; }
+        }
+        let r, g, b;
+        if (!nearest) {
+          const fade = 0.5 * (d[1] + 1);
+          r = 20 + 40 * fade; g = 20 + 40 * fade; b = 40 + 80 * fade;
+        } else {
+          const p = [d[0] * best, d[1] * best, d[2] * best];
+          const nv = norm([p[0] - nearest[0], p[1] - nearest[1], p[2] - nearest[2]]);
+          const lam = Math.max(0, dot(nv, LIGHT));
+          const spec = Math.pow(lam, 24);
+          r = Math.min(255, nearest[4][0] * (0.15 + 0.85 * lam) + 200 * spec);
+          g = Math.min(255, nearest[4][1] * (0.15 + 0.85 * lam) + 200 * spec);
+          b = Math.min(255, nearest[4][2] * (0.15 + 0.85 * lam) + 200 * spec);
+        }
+        const o = (y * W + x) * 4;
+        img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b; img.data[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return { cleanup: function () {} };
+  },
+
+  server: function () {
+    const pre = document.createElement("pre");
+    pre.style.alignSelf = "flex-start";
+    runBody.appendChild(pre);
+    const timers = [];
+    function line(txt, delay) {
+      timers.push(setTimeout(function () {
+        pre.textContent += txt + "\n";
+      }, delay));
+    }
+    const t0 = new Date().toISOString();
+    line("listening on http://localhost:8080", 300);
+    line("", 400);
+    line(t0 + " GET /", 1100);
+    line(t0 + " GET /api/status", 2000);
+    line("", 2100);
+    line("$ curl http://localhost:8080/api/status", 2600);
+    line(JSON.stringify({ ok: true, uptimeSeconds: 4, hits: 2,
+      node: "v22.22.2" }, null, 2), 3300);
+    line("", 3400);
+    line(t0 + " GET /api/echo?msg=hello", 4400);
+    line("$ curl 'http://localhost:8080/api/echo?msg=hello'", 4900);
+    line(JSON.stringify({ msg: "hello" }, null, 2), 5500);
+    return { cleanup: function () { timers.forEach(clearTimeout); } };
+  },
+};
 
 /* =====================================================================
    Keyboard — the whole point
@@ -1078,6 +1502,12 @@ document.addEventListener("keydown", function (e) {
   }
   if (e.key === "Escape") {
     openMenu();
+    return;
+  }
+  // once the program is finished, Enter runs it
+  if (finished && e.key === "Enter") {
+    e.preventDefault();
+    runDemo();
     return;
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return; // let shortcuts through
