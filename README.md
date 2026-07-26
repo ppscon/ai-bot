@@ -32,10 +32,16 @@ open index.html      # or just double-click it
    (1 = honest, 3 = fast, 6 = wizard).
 5. Hit **START TYPING** and mash the keyboard.
 
+- Code flows out at a **fast-but-human pace** — keystrokes queue characters
+  that drain with natural jitter, so it looks typed, not teleported
 - **Backspace** un-types (for that authentic "fixing a typo" look)
-- **ESC** returns to the menu
+- **ESC** returns to the menu (**☰ menu** button on phones)
 - Live **WPM** and **% written** in the status bar
-- When the file is done you get a `✓ compiled clean` banner
+- When the file is done you get a `✓ compiled clean` banner — then hit
+  **▶ RUN IT** and *the program actually works*: Snake is playable
+  (arrows or swipe), Life and Matrix rain animate, the Mandelbrot prints
+  its fractal, the ray tracer renders its spheres, the web server logs
+  requests — and AI-written HTML pages genuinely run in a sandboxed frame
 
 ## The program library
 
