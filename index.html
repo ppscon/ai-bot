@@ -155,11 +155,37 @@
   /* ---------- completion banner ---------- */
   .buildline { color: var(--accent); }
   .buildline.dim { color: var(--dim); }
+
+  /* ---------- hidden input: summons the mobile keyboard ---------- */
+  #ghost {
+    position: fixed; top: 0; left: 0;
+    width: 2px; height: 2px;
+    opacity: 0.01;
+    border: none; outline: none;
+    background: transparent; color: transparent;
+    caret-color: transparent;
+    font-size: 16px; /* prevents iOS zoom-on-focus */
+  }
+
+  #menuBtn { cursor: pointer; }
+  #menuBtn:hover { color: var(--fg); text-decoration: underline; }
+
+  /* ---------- small screens ---------- */
+  @media (max-width: 640px) {
+    #screen { padding: 16px 14px; font-size: 14px; }
+    #panel { padding: 22px 18px; }
+    #programs { grid-template-columns: 1fr; }
+    #aiRow { flex-direction: column; }
+    #statusbar { gap: 12px; font-size: 11px; }
+  }
 </style>
 </head>
 <body>
 
 <div id="screen"><span id="code"></span><span id="cursor"></span></div>
+
+<input id="ghost" type="text" autocapitalize="off" autocorrect="off"
+       autocomplete="off" spellcheck="false" aria-hidden="true" tabindex="-1">
 
 <div id="statusbar">
   <span id="st-file">—</span>
@@ -167,7 +193,7 @@
   <span class="right">
     <span><span class="lit" id="st-wpm">0</span> WPM</span>
     <span><span class="lit" id="st-pct">0%</span> written</span>
-    <span>ESC menu</span>
+    <span id="menuBtn">☰ menu</span>
   </span>
 </div>
 
@@ -950,6 +976,7 @@ aiBtn.addEventListener("click", async function () {
   localStorage.setItem("speedcoder_api_key", apiKey);
   aiBtn.disabled = true;
   setAiStatus("AI is writing your program…", "ok");
+  focusGhost();  // must happen inside the tap gesture for iOS to show the keyboard
   try {
     const result = await generateWithAI(description, apiKey);
     const prog = {
@@ -965,8 +992,10 @@ aiBtn.addEventListener("click", async function () {
     overlay.classList.add("hidden");
     running = true;
     document.getElementById("describe").blur();
+    focusGhost();
   } catch (err) {
     setAiStatus("AI error: " + err.message, "err");
+    ghost.blur();
   } finally {
     aiBtn.disabled = false;
   }
@@ -985,24 +1014,70 @@ function start() {
   overlay.classList.add("hidden");
   running = true;
   document.getElementById("describe").blur();
+  focusGhost();  // summons the on-screen keyboard on mobile
+}
+
+function openMenu() {
+  running = false;
+  overlay.classList.remove("hidden");
+  ghost.blur();  // dismiss the mobile keyboard
+  // deselect so a fresh description can re-match next time
+  document.querySelectorAll(".prog").forEach(function (el) {
+    el.classList.remove("sel");
+  });
+  selectedId = null;
 }
 
 /* =====================================================================
    Keyboard — the whole point
-   ===================================================================== */
+   =====================================================================
+   Two input paths that never double-count:
+   - Hardware keyboards: the document keydown handler reveals code and
+     calls preventDefault(), so the ghost input never changes and no
+     `input` event fires.
+   - Mobile software keyboards (iOS/Android): keys that reach keydown as
+     "Unidentified"/229 (or swipe-typed words) fall through to the ghost
+     input's `input` event, which reveals code instead.
+   The ghost input exists because phones only show a keyboard when a
+   text field is focused. */
+const ghost = document.getElementById("ghost");
+const GHOST_PAD = "·";  // gives mobile backspace something to delete
+
+function focusGhost() {
+  ghost.value = GHOST_PAD;
+  ghost.focus({ preventScroll: true });
+  ghost.setSelectionRange(ghost.value.length, ghost.value.length);
+}
+
+ghost.addEventListener("input", function (e) {
+  if (!running) { ghost.value = GHOST_PAD; return; }
+  if (e.inputType === "deleteContentBackward") {
+    unrevealChars(boost);
+  } else {
+    const n = e.data ? e.data.length : 1;
+    revealChars(boost * Math.max(1, n));
+  }
+  ghost.value = GHOST_PAD;
+  ghost.setSelectionRange(ghost.value.length, ghost.value.length);
+});
+
+// tapping the code screen brings the keyboard back if it was dismissed
+screen.addEventListener("click", function () {
+  if (running) focusGhost();
+});
+
+document.getElementById("menuBtn").addEventListener("click", function () {
+  if (running) openMenu();
+});
+
 document.addEventListener("keydown", function (e) {
   if (!running) {
-    if (e.key === "Enter" && e.target.id !== "describe") start();
+    if (e.key === "Enter" && e.target.id !== "describe" &&
+        e.target.id !== "apiKey") start();
     return;
   }
   if (e.key === "Escape") {
-    running = false;
-    overlay.classList.remove("hidden");
-    // deselect so a fresh description can re-match next time
-    document.querySelectorAll(".prog").forEach(function (el) {
-      el.classList.remove("sel");
-    });
-    selectedId = null;
+    openMenu();
     return;
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return; // let shortcuts through
