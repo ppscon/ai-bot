@@ -121,6 +121,27 @@
   }
   .boost.sel { border-color: var(--accent); color: var(--accent); }
 
+  /* ---------- Ask AI ---------- */
+  #aiRow { display: flex; gap: 8px; margin-top: 8px; }
+  #apiKey {
+    flex: 1; background: #0b0b12; color: var(--fg);
+    border: 1px solid #1e1e2c; border-radius: 6px;
+    font: inherit; font-size: 13px;
+    padding: 8px 12px; outline: none;
+  }
+  #apiKey:focus { border-color: var(--num); }
+  #aiBtn {
+    background: transparent; color: var(--num);
+    border: 1px solid var(--num); border-radius: 6px;
+    font: inherit; font-size: 13px; font-weight: 700;
+    padding: 8px 16px; cursor: pointer; white-space: nowrap;
+  }
+  #aiBtn:hover { background: rgba(181,140,255,0.1); }
+  #aiBtn:disabled { opacity: 0.5; cursor: wait; }
+  #aiStatus { font-size: 12px; margin-top: 8px; min-height: 16px; color: var(--dim); }
+  #aiStatus.err { color: #ff6b6b; }
+  #aiStatus.ok { color: var(--accent); }
+
   #startBtn {
     margin-top: 24px; width: 100%;
     background: var(--accent); color: #000;
@@ -160,6 +181,13 @@
 
     <label class="field">2 · Pick a program (or let your description choose)</label>
     <div id="programs"></div>
+
+    <label class="field">2b · …or ask AI to write exactly what you described</label>
+    <div id="aiRow">
+      <input id="apiKey" type="password" placeholder="Claude API key (sk-ant-…) — stays in your browser" spellcheck="false" autocomplete="off">
+      <button id="aiBtn">✦ ASK AI</button>
+    </div>
+    <div id="aiStatus"></div>
 
     <label class="field">3 · Characters per keystroke</label>
     <div id="boostRow">
@@ -579,6 +607,13 @@ const LANG_DEFS = {
     blockComment: true,
     tripleQuote: false,
   },
+  html: {
+    keywords: ["html","head","body","title","meta","style","script","div","span","h1","h2","h3","p","a","ul","li","button","input","canvas","form","img","table","tr","td","header","footer","section","DOCTYPE","const","let","var","function","return","if","else","for","while","document","window","true","false","null","new","addEventListener","getElementById","querySelector","setInterval","Math","console"],
+    lineComment: "//",
+    blockComment: true,
+    htmlComment: true,
+    tripleQuote: false,
+  },
 };
 
 function tokenize(code, lang) {
@@ -594,6 +629,13 @@ function tokenize(code, lang) {
 
   while (i < n) {
     const ch = code[i];
+
+    // HTML comments: <!-- ... -->
+    if (def.htmlComment && code.startsWith("<!--", i)) {
+      let j = code.indexOf("-->", i + 4);
+      j = j === -1 ? n : j + 3;
+      push(code.slice(i, j), "com"); i = j; continue;
+    }
 
     // block comments: /* ... */ (C) and """ ... """ (Python)
     if (def.blockComment && ch === "/" && code[i + 1] === "*") {
@@ -687,6 +729,7 @@ let running = false;
 let finished = false;
 let startTime = null;
 let selectedId = null;
+let currentProg = null;   // the program being typed (library entry or AI-generated)
 
 const COMMENT_PREFIX = { python: "# ", javascript: "// ", c: "// " };
 
@@ -701,6 +744,7 @@ function buildSource(prog, description) {
 }
 
 function loadProgram(prog, description) {
+  currentProg = prog;
   const source = buildSource(prog, description);
   tokens = tokenize(source, prog.lang);
   totalChars = source.length;
@@ -764,9 +808,11 @@ function updateStatus() {
 function complete() {
   finished = true;
   const done = document.createElement("div");
-  const prog = PROGRAMS.find(function (p) { return p.id === selectedId; });
+  const prog = currentProg;
   const runCmd = prog.lang === "c"
     ? "cc -O2 -o app " + prog.file + " && ./app"
+    : prog.lang === "html"
+    ? "open " + prog.file + "   # runs in any browser"
     : (prog.lang === "python" ? "python3 " : "node ") + prog.file;
   done.innerHTML =
     '\n\n<span class="buildline dim">$ ' + runCmd + '</span>' +
@@ -821,6 +867,109 @@ document.querySelectorAll(".boost").forEach(function (btn) {
     btn.classList.add("sel");
     boost = parseInt(btn.dataset.b, 10);
   });
+});
+
+/* =====================================================================
+   Ask AI — Claude writes a real program from the description
+   ===================================================================== */
+const apiKeyEl = document.getElementById("apiKey");
+const aiBtn = document.getElementById("aiBtn");
+const aiStatus = document.getElementById("aiStatus");
+apiKeyEl.value = localStorage.getItem("speedcoder_api_key") || "";
+
+function setAiStatus(msg, cls) {
+  aiStatus.textContent = msg;
+  aiStatus.className = cls || "";
+}
+
+async function generateWithAI(description, apiKey) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-opus-5",
+      max_tokens: 8192,
+      output_config: {
+        effort: "medium",
+        format: {
+          type: "json_schema",
+          schema: {
+            type: "object",
+            properties: {
+              filename: { type: "string" },
+              language: { type: "string", enum: ["python", "javascript", "c", "html"] },
+              code: { type: "string" },
+            },
+            required: ["filename", "language", "code"],
+            additionalProperties: false,
+          },
+        },
+      },
+      system: "You write small, complete, runnable programs for a fun " +
+        "fake-typing app. Given a description, produce ONE self-contained " +
+        "program (roughly 30-120 lines) in python (3, stdlib only), " +
+        "javascript (Node, no dependencies), c (C89/C99, compiles with cc), " +
+        "or html (single file with inline CSS/JS) - whichever fits best. " +
+        "It must run as-is with no external dependencies. Include a short " +
+        "comment header saying what it does. Prefer visually or " +
+        "interactively fun results.",
+      messages: [{ role: "user", content: description }],
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error((data.error && data.error.message) || ("HTTP " + res.status));
+  }
+  if (data.stop_reason === "refusal") {
+    throw new Error("The AI declined this request - try describing something else.");
+  }
+  if (data.stop_reason === "max_tokens") {
+    throw new Error("Program came out too long - try asking for something simpler.");
+  }
+  const text = data.content.filter(function (b) { return b.type === "text"; })
+    .map(function (b) { return b.text; }).join("");
+  return JSON.parse(text);
+}
+
+aiBtn.addEventListener("click", async function () {
+  const description = document.getElementById("describe").value.trim();
+  const apiKey = apiKeyEl.value.trim();
+  if (!description) {
+    setAiStatus("Describe what the program should do first (box 1).", "err");
+    return;
+  }
+  if (!apiKey) {
+    setAiStatus("Paste your Claude API key - it is only stored in this browser.", "err");
+    return;
+  }
+  localStorage.setItem("speedcoder_api_key", apiKey);
+  aiBtn.disabled = true;
+  setAiStatus("AI is writing your program…", "ok");
+  try {
+    const result = await generateWithAI(description, apiKey);
+    const prog = {
+      id: "ai",
+      title: "AI: " + description.slice(0, 40),
+      lang: result.language,
+      file: result.filename,
+      code: result.code.endsWith("\n") ? result.code : result.code + "\n",
+    };
+    setAiStatus("Done - start typing!", "ok");
+    selectedId = "ai";
+    loadProgram(prog, "");  // AI code already reflects the description
+    overlay.classList.add("hidden");
+    running = true;
+    document.getElementById("describe").blur();
+  } catch (err) {
+    setAiStatus("AI error: " + err.message, "err");
+  } finally {
+    aiBtn.disabled = false;
+  }
 });
 
 document.getElementById("startBtn").addEventListener("click", start);
