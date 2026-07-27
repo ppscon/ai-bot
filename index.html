@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Speed Coder — type anything, write real code</title>
+<title>Coder — one key, one character, real code</title>
 <style>
   :root {
     --bg: #000000;
@@ -28,14 +28,18 @@
   /* ---------- editor surface ---------- */
   #screen {
     position: absolute; inset: 0 0 34px 0;
-    overflow-y: auto;
-    padding: 28px 36px;
+    overflow: auto;
+    padding: 28px 36px 28px 76px;
     font-size: 16px;
     line-height: 1.55;
-    white-space: pre-wrap;
-    word-break: break-all;
+    white-space: pre;
   }
   #screen::-webkit-scrollbar { width: 0; }
+  #gutter {
+    position: absolute; top: 28px; left: 0;
+    width: 54px; text-align: right;
+    color: #343441; user-select: none;
+  }
 
   .tok-kw  { color: var(--kw);  }
   .tok-str { color: var(--str); }
@@ -79,6 +83,8 @@
   #overlay.hidden { display: none; }
   #panel {
     width: min(640px, 92vw);
+    max-height: min(860px, 92vh);
+    overflow-y: auto;
     border: 1px solid #1e1e2c;
     border-radius: 10px;
     background: #050509;
@@ -93,46 +99,41 @@
   #panel p.sub { color: var(--dim); font-size: 13px; margin-bottom: 22px; }
 
   label.field { display: block; color: var(--dim); font-size: 12px; margin: 16px 0 6px; letter-spacing: 0.5px; text-transform: uppercase; }
-  #describe {
+  #describe, #siteName {
     width: 100%; background: #0b0b12; color: var(--fg);
     border: 1px solid #1e1e2c; border-radius: 6px;
     font: inherit; font-size: 14px;
-    padding: 10px 12px; resize: none; height: 64px; outline: none;
+    padding: 10px 12px; outline: none;
   }
-  #describe:focus { border-color: var(--accent); }
+  #describe { resize: none; height: 58px; }
+  #describe:focus, #siteName:focus { border-color: var(--accent); }
 
   #programs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .prog {
+    width: 100%; text-align: left; font: inherit; color: inherit;
     border: 1px solid #1e1e2c; border-radius: 6px;
     padding: 10px 12px; cursor: pointer;
     background: #0b0b12;
   }
   .prog:hover { border-color: #3a3a52; }
+  .prog:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .prog.sel { border-color: var(--accent); box-shadow: 0 0 12px rgba(57,255,155,0.15); }
   .prog .t { font-size: 13.5px; color: var(--fg); }
   .prog .d { font-size: 11.5px; color: var(--dim); margin-top: 3px; }
   .prog .lang { float: right; font-size: 10.5px; color: var(--num); }
 
-  /* ---------- Ask AI ---------- */
-  #aiRow { display: flex; gap: 8px; margin-top: 8px; }
-  #apiKey {
-    flex: 1; background: #0b0b12; color: var(--fg);
+  #matchStatus {
+    display: flex; align-items: center; gap: 8px;
+    min-height: 34px; margin-top: 10px; padding: 8px 10px;
     border: 1px solid #1e1e2c; border-radius: 6px;
-    font: inherit; font-size: 13px;
-    padding: 8px 12px; outline: none;
+    background: #08080e; color: var(--dim); font-size: 11.5px;
   }
-  #apiKey:focus { border-color: var(--num); }
-  #aiBtn {
-    background: transparent; color: var(--num);
-    border: 1px solid var(--num); border-radius: 6px;
-    font: inherit; font-size: 13px; font-weight: 700;
-    padding: 8px 16px; cursor: pointer; white-space: nowrap;
+  #matchStatus .dot {
+    width: 7px; height: 7px; flex: none; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 8px rgba(57,255,155,0.7);
   }
-  #aiBtn:hover { background: rgba(181,140,255,0.1); }
-  #aiBtn:disabled { opacity: 0.5; cursor: wait; }
-  #aiStatus { font-size: 12px; margin-top: 8px; min-height: 16px; color: var(--dim); }
-  #aiStatus.err { color: #ff6b6b; }
-  #aiStatus.ok { color: var(--accent); }
+  #matchStatus.warn .dot { background: var(--str); box-shadow: none; }
+  #matchStatus strong { color: var(--fg); font-weight: 600; }
 
   #startBtn {
     margin-top: 24px; width: 100%;
@@ -142,11 +143,26 @@
     padding: 12px; cursor: pointer; letter-spacing: 1px;
   }
   #startBtn:hover { filter: brightness(1.15); }
+  #startBtn:disabled { opacity: 0.35; cursor: not-allowed; filter: none; }
   #panel .hint { text-align: center; color: var(--dim); font-size: 11.5px; margin-top: 14px; }
 
   /* ---------- completion banner ---------- */
   .buildline { color: var(--accent); }
   .buildline.dim { color: var(--dim); }
+  .compilebox {
+    display: block; width: min(430px, 90vw); margin: 6px 0;
+    color: var(--dim); font-size: 13px;
+  }
+  .compiletrack {
+    display: block; height: 7px; margin-top: 7px;
+    border: 1px solid #26302d; border-radius: 99px;
+    background: #090d0c; overflow: hidden;
+  }
+  .compilefill {
+    display: block; width: 0; height: 100%;
+    background: var(--accent); box-shadow: 0 0 12px rgba(57,255,155,0.7);
+    transition: width 80ms linear;
+  }
 
   /* ---------- hidden input: summons the mobile keyboard ---------- */
   #ghost {
@@ -159,8 +175,12 @@
     font-size: 16px; /* prevents iOS zoom-on-focus */
   }
 
-  #menuBtn { cursor: pointer; }
+  #menuBtn {
+    border: 0; background: transparent; color: inherit;
+    font: inherit; cursor: pointer;
+  }
   #menuBtn:hover { color: var(--fg); text-decoration: underline; }
+  #menuBtn:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
 
   /* ---------- run overlay: watch the program actually work ---------- */
   #runOverlay {
@@ -206,17 +226,17 @@
 
   /* ---------- small screens ---------- */
   @media (max-width: 640px) {
-    #screen { padding: 16px 14px; font-size: 14px; }
+    #screen { padding: 16px 14px 16px 54px; font-size: 14px; }
+    #gutter { top: 16px; width: 38px; }
     #panel { padding: 22px 18px; }
     #programs { grid-template-columns: 1fr; }
-    #aiRow { flex-direction: column; }
     #statusbar { gap: 12px; font-size: 11px; }
   }
 </style>
 </head>
 <body>
 
-<div id="screen"><span id="code"></span><span id="cursor"></span></div>
+<div id="screen"><span id="gutter">1</span><span id="code"></span><span id="cursor"></span></div>
 
 <input id="ghost" type="text" autocapitalize="off" autocorrect="off"
        autocomplete="off" spellcheck="false" aria-hidden="true" tabindex="-1">
@@ -235,30 +255,28 @@
   <span class="right">
     <span><span class="lit" id="st-wpm">0</span> WPM</span>
     <span><span class="lit" id="st-pct">0%</span> written</span>
-    <span id="menuBtn">☰ menu</span>
+    <button id="menuBtn" type="button">☰ menu</button>
   </span>
 </div>
 
 <div id="overlay">
   <div id="panel">
-    <h1>SPEED<span class="flash">_</span>CODER</h1>
-    <p class="sub">Mash any keys. Real, runnable code comes out — at exactly the speed you type. Stop typing, it stops. Anyone watching thinks you're a wizard.</p>
+    <h1>CODER</h1>
+    <p class="sub">Every deliberate key press reveals one character of real, runnable code. No account, API key, or internet connection.</p>
 
-    <label class="field">1 · Describe what your program does (optional — becomes the header comment)</label>
-    <textarea id="describe" placeholder="e.g. a raytracer that renders three glossy spheres to an image…" spellcheck="false"></textarea>
+    <label class="field" for="siteName">1 · Type the name for your website</label>
+    <input id="siteName" type="text" placeholder="e.g. Ana" maxlength="40"
+           autocomplete="new-password" spellcheck="false" readonly>
 
-    <label class="field">2 · Pick a program (or let your description choose)</label>
+    <label class="field" for="describe">2 · Describe a short demo program (optional)</label>
+    <textarea id="describe" placeholder="e.g. create a login screen" spellcheck="false"></textarea>
+
+    <label class="field">3 · Use the tiny website — or pick another program</label>
     <div id="programs"></div>
-
-    <label class="field">3 · …or ask AI to write exactly what you described</label>
-    <div id="aiRow">
-      <input id="apiKey" type="password" placeholder="Claude API key (sk-ant-…) — stays in your browser" spellcheck="false" autocomplete="off">
-      <button id="aiBtn">✦ ASK AI</button>
-    </div>
-    <div id="aiStatus"></div>
+    <div id="matchStatus" role="status" aria-live="polite"></div>
 
     <button id="startBtn">START TYPING</button>
-    <div class="hint">One keystroke = one character · Backspace un-types · ESC returns here</div>
+    <div class="hint">One press = one character · Held keys do not repeat · Backspace un-types</div>
   </div>
 </div>
 
@@ -270,6 +288,96 @@
    (No backticks or ${ } inside snippets: they live in template strings.)
    ===================================================================== */
 const PROGRAMS = [
+{
+  id: "hello",
+  title: "Hello Website",
+  lang: "html",
+  file: "index.html",
+  desc: "Tiny styled page personalised with any name",
+  tags: ["hello", "website", "site", "page", "homepage", "html", "css", "name", "world"],
+  code:
+`<!doctype html>
+<title>Hello {{NAME}}</title>
+<style>
+body{background:#101827;color:white;text-align:center;font:24px system-ui;padding:20vh}
+h1{color:#56f0b5}
+</style>
+<h1>Hello, {{NAME}}!</h1>
+<p>This is a website for {{NAME}}.</p>
+`
+},
+{
+  id: "login",
+  title: "Login Screen",
+  lang: "html",
+  file: "login.html",
+  desc: "Short styled sign-in form with email and password",
+  tags: ["login", "signin", "sign", "auth", "account", "form", "email", "password", "screen", "html", "website", "page"],
+  code:
+`<!doctype html>
+<style>
+body{background:#123;font:18px sans-serif}
+form{margin:20vh auto;width:220px;display:grid;gap:10px;background:white;padding:25px;border-radius:14px}
+input,button{padding:10px}
+button{background:#65f;color:white}
+</style>
+<form><h2>Login</h2><input placeholder=Email>
+<input type=password placeholder=Password>
+<button type=button>Log in</button></form>
+`
+},
+{
+  id: "counter",
+  title: "Click Counter",
+  lang: "html",
+  file: "counter.html",
+  desc: "Tiny button that counts every click",
+  tags: ["counter", "count", "click", "button", "number", "increment", "html", "website", "page"],
+  code:
+`<!doctype html>
+<style>
+body{text-align:center;font:30px sans-serif;padding:20vh;background:#eef}
+button{padding:12px 25px;font-size:20px}
+</style>
+<h1 id=n>0</h1>
+<button onclick="n.innerText++">Count</button>
+`
+},
+{
+  id: "clock",
+  title: "Live Clock",
+  lang: "html",
+  file: "clock.html",
+  desc: "Tiny digital clock that updates every second",
+  tags: ["clock", "time", "timer", "digital", "seconds", "live", "html", "website", "page"],
+  code:
+`<!doctype html>
+<style>
+body{background:#111;color:#5fb;font:50px monospace;text-align:center;padding:30vh}
+</style>
+<time id=t>--:--:--</time>
+<script>
+setInterval(()=>t.innerText=new Date().toLocaleTimeString(),1000)
+<\/script>
+`
+},
+{
+  id: "colour",
+  title: "Colour Picker",
+  lang: "html",
+  file: "colour.html",
+  desc: "Tiny colour control that changes the page",
+  tags: ["colour", "color", "picker", "background", "theme", "change", "html", "website", "page"],
+  code:
+`<!doctype html>
+<style>
+body{text-align:center;font:25px sans-serif;padding:25vh;transition:.2s}
+input{width:100px;height:60px}
+</style>
+<h2>Pick a colour</h2>
+<input type=color oninput="document.body.style.background=this.value">
+`
+},
 {
   id: "life",
   title: "Game of Life",
@@ -773,6 +881,7 @@ function tokenize(code, lang) {
    ===================================================================== */
 const screen  = document.getElementById("screen");
 const codeEl  = document.getElementById("code");
+const gutterEl = document.getElementById("gutter");
 const overlay = document.getElementById("overlay");
 const stFile  = document.getElementById("st-file");
 const stLang  = document.getElementById("st-lang");
@@ -787,13 +896,72 @@ let tokenPos = 0;       // chars of current token already out
 let currentSpan = null; // live span we're appending into
 let running = false;
 let finished = false;
+let compiled = false;
+let compileTimer = null;
 let startTime = null;
 let selectedId = null;
 let currentProg = null;   // the program being typed (library entry or AI-generated)
+const SESSION_KEY = "speedcoder_active_session";
+
+function saveSession() {
+  if (!currentProg || !running) return;
+  try {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+      programId: currentProg.id,
+      description: describeEl.value,
+      siteName: siteNameEl.value,
+      revealed: revealed,
+      finished: finished,
+    }));
+  } catch (_) {}
+}
+
+function clearSession() {
+  try { sessionStorage.removeItem(SESSION_KEY); } catch (_) {}
+}
+
+function restoreSession() {
+  let saved = null;
+  try { saved = JSON.parse(sessionStorage.getItem(SESSION_KEY)); } catch (_) {}
+  if (!saved || saved.finished || !saved.programId) return false;
+  const prog = PROGRAMS.find(function (p) { return p.id === saved.programId; });
+  if (!prog) { clearSession(); return false; }
+  siteNameEl.value = saved.siteName || "";
+  describeEl.value = saved.description || "";
+  selectedId = prog.id;
+  selectionMode = "manual";
+  selectCard(selectedId);
+  loadProgram(prog, describeEl.value);
+  appendCharacters(Math.min(Number(saved.revealed) || 0, totalChars));
+  updateLineNumbers();
+  updateStatus();
+  overlay.classList.add("hidden");
+  running = true;
+  screen.scrollTop = screen.scrollHeight;
+  return true;
+}
 
 const COMMENT_PREFIX = { python: "# ", javascript: "// ", c: "// " };
 
-function buildSource(prog, description) {
+function recipientFrom(description, directName) {
+  const typedName = directName.trim().replace(/\s+/g, " ");
+  if (typedName) return typedName;
+  const match = description.trim().match(/\b(?:website|site|page)?\s*for\s+([a-z][a-z '-]{0,39})[.!?]*$/i);
+  if (!match) return "you";
+  return match[1].trim().replace(/\s+/g, " ");
+}
+
+function escapeHtml(value) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function buildSource(prog, description, directName) {
+  if (prog.id === "hello") {
+    const name = escapeHtml(recipientFrom(description, directName));
+    return prog.code.replace(/\{\{NAME\}\}/g, name);
+  }
+  if (prog.lang === "html") return prog.code;
   let header = "";
   if (description.trim()) {
     const p = COMMENT_PREFIX[prog.lang] || "// ";
@@ -804,17 +972,21 @@ function buildSource(prog, description) {
 }
 
 function loadProgram(prog, description) {
+  if (compileTimer) { clearInterval(compileTimer); compileTimer = null; }
   currentProg = prog;
-  const source = buildSource(prog, description);
+  const source = buildSource(prog, description, siteNameEl.value);
   tokens = tokenize(source, prog.lang);
   totalChars = source.length;
   revealed = 0; tokenIdx = 0; tokenPos = 0; currentSpan = null;
-  finished = false; startTime = null;
+  finished = false; compiled = false; startTime = null;
   codeEl.innerHTML = "";
+  gutterEl.textContent = "1";
   stFile.textContent = "~/projects/" + prog.file;
   stLang.textContent = prog.lang;
   stPct.textContent = "0%";
   stWpm.textContent = "0";
+  document.getElementById("menuBtn").textContent =
+    prog.id === "hello" ? "✎ edit name" : "☰ menu";
 }
 
 function newSpan(cls) {
@@ -824,11 +996,9 @@ function newSpan(cls) {
   return s;
 }
 
-/* One keystroke reveals exactly one character, instantly — the output
-   is perfectly synchronized with the typist's real speed. */
-function revealNow(count) {
-  if (finished) return;
-  if (!startTime) startTime = Date.now();
+/* Normal input can only call revealOne(). Keeping the count out of its
+   public shape makes "one press = one character" a hard invariant. */
+function appendCharacters(count) {
   let left = count;
   while (left > 0 && tokenIdx < tokens.length) {
     const tok = tokens[tokenIdx];
@@ -840,21 +1010,30 @@ function revealNow(count) {
       tokenIdx++; tokenPos = 0; currentSpan = null;
     }
   }
+}
+
+function revealOne() {
+  if (finished) return;
+  if (!startTime) startTime = Date.now();
+  appendCharacters(1);
+  updateLineNumbers();
   screen.scrollTop = screen.scrollHeight;
   updateStatus();
+  saveSession();
   if (tokenIdx >= tokens.length) complete();
 }
 
-function unrevealChars(count) {
+function unrevealOne() {
   if (finished || revealed === 0) return;
-  revealed = Math.max(0, revealed - count);
-  // rebuild up to `revealed` — backspace is rare, full rebuild is fine
+  const target = revealed - 1;
+  // Rebuild the highlighted spans without treating it as fresh typing.
   codeEl.innerHTML = "";
   currentSpan = null; tokenIdx = 0; tokenPos = 0;
-  let left = revealed;
   revealed = 0;
-  if (left > 0) revealNow(left);
-  else updateStatus();
+  appendCharacters(target);
+  updateLineNumbers();
+  updateStatus();
+  saveSession();
 }
 
 function updateStatus() {
@@ -867,6 +1046,15 @@ function updateStatus() {
   }
 }
 
+function updateLineNumbers() {
+  const lineCount = Math.max(1, codeEl.textContent.split("\n").length);
+  let numbers = "";
+  for (let line = 1; line <= lineCount; line++) {
+    numbers += (line > 1 ? "\n" : "") + line;
+  }
+  gutterEl.textContent = numbers;
+}
+
 function runCommandFor(prog) {
   return prog.lang === "c"
     ? "cc -O2 -o app " + prog.file + " && ./app"
@@ -877,208 +1065,205 @@ function runCommandFor(prog) {
 
 function complete() {
   finished = true;
+  saveSession();
   const done = document.createElement("div");
   const prog = currentProg;
   done.innerHTML =
     '\n\n<span class="buildline dim">$ ' + runCommandFor(prog) + '</span>' +
-    '\n<span class="buildline">✓ compiled clean — 0 errors, 0 warnings</span>' +
-    (hasDemo(prog)
-      ? '\n<span class="buildline"><span class="runBtn" id="runBtn">▶ RUN IT</span> <span class="buildline dim">watch it work (or press Enter)</span></span>'
-      : '') +
-    '\n<span class="buildline dim">press ESC to write another program</span>';
+    '\n<span class="compilebox"><span id="compileLabel">compiling… 0%</span>' +
+    '<span class="compiletrack"><span class="compilefill" id="compileFill"></span></span></span>';
   codeEl.appendChild(done);
-  if (hasDemo(prog)) {
-    document.getElementById("runBtn").addEventListener("click", runDemo);
-  }
   screen.scrollTop = screen.scrollHeight;
+
+  const label = document.getElementById("compileLabel");
+  const fill = document.getElementById("compileFill");
+  let progress = 0;
+  compileTimer = setInterval(function () {
+    progress = Math.min(100, progress + 4);
+    label.textContent = "compiling… " + progress + "%";
+    fill.style.width = progress + "%";
+    if (progress < 100) return;
+    clearInterval(compileTimer);
+    compileTimer = null;
+    compiled = true;
+    label.textContent = "✓ compiled clean — 0 errors, 0 warnings";
+    label.className = "buildline";
+    const actions = document.createElement("span");
+    actions.className = "buildline";
+    actions.innerHTML = (hasDemo(prog)
+      ? '\n<span class="runBtn" id="runBtn">▶ RUN IT</span> <span class="buildline dim">watch it work (or press Enter)</span>'
+      : '') +
+      '\n<span class="buildline dim">press ESC to write another program</span>';
+    done.appendChild(actions);
+    if (hasDemo(prog)) {
+      document.getElementById("runBtn").addEventListener("click", runDemo);
+    }
+    screen.scrollTop = screen.scrollHeight;
+    saveSession();
+  }, 45);
 }
 
 /* =====================================================================
    Description → program matching
    ===================================================================== */
 function matchProgram(description) {
-  const words = description.toLowerCase().match(/[a-z]+/g) || [];
-  let best = null, bestScore = 0;
-  PROGRAMS.forEach(function (p) {
-    const hay = (p.tags.join(" ") + " " + p.title + " " + p.desc).toLowerCase();
-    let score = 0;
-    words.forEach(function (w) {
-      if (w.length > 2 && hay.indexOf(w) !== -1) score++;
+  const stopWords = ["the", "and", "that", "with", "from", "into", "for",
+    "this", "have", "make", "write", "program", "app", "code"];
+  const words = (description.toLowerCase().match(/[a-z0-9]+/g) || [])
+    .filter(function (word) {
+      return word.length > 2 && stopWords.indexOf(word) === -1;
     });
-    if (score > bestScore) { best = p; bestScore = score; }
+  let best = null, bestScore = 0, matched = [];
+  PROGRAMS.forEach(function (p) {
+    const title = p.title.toLowerCase();
+    const tags = p.tags.map(function (tag) { return tag.toLowerCase(); });
+    const hay = (tags.join(" ") + " " + title + " " + p.desc).toLowerCase();
+    let score = 0;
+    const hits = [];
+    words.forEach(function (w) {
+      if (tags.indexOf(w) !== -1) { score += 4; hits.push(w); }
+      else if (title.indexOf(w) !== -1) { score += 3; hits.push(w); }
+      else if (hay.indexOf(w) !== -1) { score += 1; hits.push(w); }
+    });
+    if (score > bestScore) {
+      best = p; bestScore = score; matched = hits;
+    }
   });
-  return best;  // null when nothing matches — caller decides what to do
+  return best ? { program: best, score: bestScore, matched: matched } : null;
 }
 
 /* =====================================================================
    Menu wiring
    ===================================================================== */
 const programsEl = document.getElementById("programs");
+const siteNameEl = document.getElementById("siteName");
+const describeEl = document.getElementById("describe");
+const matchStatus = document.getElementById("matchStatus");
+const startBtn = document.getElementById("startBtn");
+let selectionMode = "default";
+
+function selectCard(id) {
+  document.querySelectorAll(".prog").forEach(function (el) {
+    const selected = el.dataset.id === id;
+    el.classList.toggle("sel", selected);
+    el.setAttribute("aria-pressed", selected ? "true" : "false");
+  });
+}
+
+function showSelection(prog, message, warn) {
+  matchStatus.className = warn ? "warn" : "";
+  matchStatus.innerHTML = '<span class="dot"></span><span>' + message + '</span>';
+  startBtn.textContent = prog ? "TYPE " + prog.file.toUpperCase() : "PICK A PROGRAM";
+  startBtn.disabled = !prog;
+}
+
 PROGRAMS.forEach(function (p) {
-  const div = document.createElement("div");
-  div.className = "prog";
-  div.dataset.id = p.id;
-  div.innerHTML = '<span class="lang">' + p.lang + '</span>' +
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "prog";
+  button.dataset.id = p.id;
+  button.setAttribute("aria-pressed", "false");
+  button.innerHTML = '<span class="lang">' + p.lang + '</span>' +
     '<div class="t">' + p.title + '</div><div class="d">' + p.desc + '</div>';
-  div.addEventListener("click", function () {
-    document.querySelectorAll(".prog").forEach(function (el) {
-      el.classList.remove("sel");
-    });
-    div.classList.add("sel");
+  button.addEventListener("click", function () {
     selectedId = p.id;
+    selectionMode = "manual";
+    selectCard(selectedId);
+    showSelection(p, '<strong>' + p.title + '</strong> selected manually.', false);
   });
-  programsEl.appendChild(div);
+  programsEl.appendChild(button);
 });
 
-/* =====================================================================
-   Ask AI — Claude writes a real program from the description
-   ===================================================================== */
-const apiKeyEl = document.getElementById("apiKey");
-const aiBtn = document.getElementById("aiBtn");
-const aiStatus = document.getElementById("aiStatus");
-apiKeyEl.value = localStorage.getItem("speedcoder_api_key") || "";
-
-function setAiStatus(msg, cls) {
-  aiStatus.textContent = msg;
-  aiStatus.className = cls || "";
-}
-
-async function generateWithAI(description, apiKey) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model: "claude-opus-5",
-      max_tokens: 8192,
-      output_config: {
-        effort: "low",
-        format: {
-          type: "json_schema",
-          schema: {
-            type: "object",
-            properties: {
-              filename: { type: "string" },
-              language: { type: "string", enum: ["python", "javascript", "c", "html"] },
-              code: { type: "string" },
-            },
-            required: ["filename", "language", "code"],
-            additionalProperties: false,
-          },
-        },
-      },
-      system: "You write short, complete, runnable code snippets for a " +
-        "fake-typing app. Write the SHORTEST clean program that does " +
-        "EXACTLY what the user describes - follow the description " +
-        "literally and add nothing they did not ask for: no extra " +
-        "features, no animations, no styling flourishes, no configuration " +
-        "options. Typically 10-40 lines. Choose the best-fitting language: " +
-        "python (3, stdlib only), javascript (Node, no dependencies), " +
-        "c (compiles with cc), or html (one file, inline CSS/JS; use html " +
-        "whenever they describe a web page or anything visual). It must " +
-        "run as-is. Start with a one-line comment saying what it does.",
-      messages: [{ role: "user", content: description }],
-    }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error((data.error && data.error.message) || ("HTTP " + res.status));
-  }
-  if (data.stop_reason === "refusal") {
-    throw new Error("The AI declined this request - try describing something else.");
-  }
-  if (data.stop_reason === "max_tokens") {
-    throw new Error("Program came out too long - try asking for something simpler.");
-  }
-  const text = data.content.filter(function (b) { return b.type === "text"; })
-    .map(function (b) { return b.text; }).join("");
-  return JSON.parse(text);
-}
-
-aiBtn.addEventListener("click", async function () {
-  const description = document.getElementById("describe").value.trim();
-  const apiKey = apiKeyEl.value.trim();
+function updateMatch() {
+  const description = describeEl.value.trim();
+  const name = escapeHtml(recipientFrom(description, siteNameEl.value));
   if (!description) {
-    setAiStatus("Describe what the program should do first (box 1).", "err");
+    if (selectionMode !== "manual") {
+      selectedId = "hello";
+      selectionMode = "default";
+      selectCard(selectedId);
+    }
+    const chosen = PROGRAMS.find(function (p) { return p.id === selectedId; });
+    const message = chosen.id === "hello" && siteNameEl.value.trim()
+      ? 'Ready: <strong>Hello Website for ' + name + '</strong>. You can edit the name at any time.'
+      : chosen.id === "hello"
+      ? '<strong>Hello Website</strong> is ready. Type a name above, for example “Ana”.'
+      : '<strong>' + chosen.title + '</strong> is ready. Describe an idea for a local recommendation, or pick another.';
+    showSelection(chosen, message, false);
     return;
   }
-  if (!apiKey) {
-    setAiStatus("Paste your Claude API key - it is only stored in this browser.", "err");
+  if (selectionMode === "manual") {
+    const chosen = PROGRAMS.find(function (p) { return p.id === selectedId; });
+    const manualMessage = chosen.id === "hello"
+      ? 'Ready: <strong>Hello Website for ' + name + '</strong>. Tiny, styled, and editable.'
+      : '<strong>' + chosen.title +
+        '</strong> stays selected; your description will become its header comment.';
+    showSelection(chosen, manualMessage, false);
     return;
   }
-  localStorage.setItem("speedcoder_api_key", apiKey);
-  aiBtn.disabled = true;
-  setAiStatus("AI is writing your program…", "ok");
-  focusGhost();  // must happen inside the tap gesture for iOS to show the keyboard
-  try {
-    const result = await generateWithAI(description, apiKey);
-    const prog = {
-      id: "ai",
-      title: "AI: " + description.slice(0, 40),
-      lang: result.language,
-      file: result.filename,
-      code: result.code.endsWith("\n") ? result.code : result.code + "\n",
-    };
-    setAiStatus("Done - start typing!", "ok");
-    selectedId = "ai";
-    loadProgram(prog, "");  // AI code already reflects the description
-    overlay.classList.add("hidden");
-    running = true;
-    document.getElementById("describe").blur();
-    focusGhost();
-  } catch (err) {
-    setAiStatus("AI error: " + err.message, "err");
-    ghost.blur();
-  } finally {
-    aiBtn.disabled = false;
+  const match = matchProgram(description);
+  if (!match) {
+    selectedId = null;
+    selectCard(null);
+    showSelection(null, 'No close local preset yet. Pick one of the real programs above.', true);
+    return;
   }
+  selectedId = match.program.id;
+  selectionMode = "match";
+  selectCard(selectedId);
+  const matchMessage = match.program.id === "hello"
+    ? 'Ready: <strong>Hello Website for ' + name + '</strong>. Tiny, styled, and editable.'
+    : 'Local match: <strong>' + match.program.title +
+      '</strong> from “' + match.matched.slice(0, 3).join(", ") + '”.';
+  showSelection(match.program, matchMessage, false);
+}
+
+describeEl.addEventListener("input", function () {
+  if (selectionMode === "manual" && !describeEl.value.trim()) selectionMode = "default";
+  else if (selectionMode === "match") selectionMode = "default";
+  updateMatch();
 });
 
-document.getElementById("startBtn").addEventListener("click", start);
+siteNameEl.addEventListener("focus", function () {
+  siteNameEl.readOnly = false;
+});
+siteNameEl.addEventListener("input", updateMatch);
+
+startBtn.addEventListener("click", start);
+updateMatch();
+
+// Remove any credential left by older releases. This version is fully local.
+try { localStorage.removeItem("speedcoder_api_key"); } catch (_) {}
 
 function start() {
-  const description = document.getElementById("describe").value;
+  const description = describeEl.value;
   let prog = PROGRAMS.find(function (p) { return p.id === selectedId; });
   if (!prog) {
-    prog = matchProgram(description);
-    if (!prog) {
-      if (description.trim()) {
-        // don't start a random program the user didn't describe
-        setAiStatus("No library program matches that description - tap " +
-          "✦ ASK AI to have Claude write it, or pick a program above.", "err");
-        return;
-      }
-      prog = PROGRAMS[Math.floor(Math.random() * PROGRAMS.length)];
-    }
-    selectedId = prog.id;
+    updateMatch();
+    return;
   }
   loadProgram(prog, description);
   overlay.classList.add("hidden");
   running = true;
-  document.getElementById("describe").blur();
+  saveSession();
+  describeEl.blur();
+  siteNameEl.blur();
   focusGhost();  // summons the on-screen keyboard on mobile
 }
 
 function openMenu() {
   running = false;
+  if (compileTimer) { clearInterval(compileTimer); compileTimer = null; }
+  clearSession();
   closeDemo();
   overlay.classList.remove("hidden");
   ghost.blur();  // dismiss the mobile keyboard
-  // deselect so a fresh description can re-match next time
-  document.querySelectorAll(".prog").forEach(function (el) {
-    el.classList.remove("sel");
-  });
-  selectedId = null;
+  updateMatch();
 }
 
 /* =====================================================================
    Run overlay — the payoff: the finished program actually works.
-   Library programs get faithful JS re-implementations; AI-written HTML
-   runs for real in a sandboxed iframe.
+   Library programs get faithful browser demos.
    ===================================================================== */
 const runOverlay = document.getElementById("runOverlay");
 const runBody = document.getElementById("runBody");
@@ -1102,7 +1287,7 @@ function makeCanvas(w, h) {
 
 function runDemo() {
   const prog = currentProg;
-  if (!prog || !finished || !hasDemo(prog)) return;
+  if (!prog || !finished || !compiled || !hasDemo(prog)) return;
   ghost.blur();  // free the screen (and hide the mobile keyboard)
   runOverlay.classList.remove("hidden");
   runBody.innerHTML = "";
@@ -1122,10 +1307,9 @@ function runDemo() {
     innerCleanup = d.cleanup;
     demoKeys = d.keys || null;
   } else {
-    // AI-generated HTML: run it for real
     const frame = document.createElement("iframe");
     frame.setAttribute("sandbox", "allow-scripts");
-    frame.srcdoc = prog.code;
+    frame.srcdoc = buildSource(prog, describeEl.value, siteNameEl.value);
     runBody.appendChild(frame);
   }
 
@@ -1440,9 +1624,9 @@ function focusGhost() {
 ghost.addEventListener("input", function (e) {
   if (!running) { ghost.value = GHOST_PAD; return; }
   if (e.inputType === "deleteContentBackward") {
-    unrevealChars(1);
+    unrevealOne();
   } else {
-    revealNow(1);  // even a swipe-typed word counts as one keystroke
+    revealOne();  // a paste or swipe event still reveals only one character
   }
   ghost.value = GHOST_PAD;
   ghost.setSelectionRange(ghost.value.length, ghost.value.length);
@@ -1459,8 +1643,7 @@ document.getElementById("menuBtn").addEventListener("click", function () {
 
 document.addEventListener("keydown", function (e) {
   if (!running) {
-    if (e.key === "Enter" && e.target.id !== "describe" &&
-        e.target.id !== "apiKey") start();
+    if (e.key === "Enter" && e.target.id !== "describe") start();
     return;
   }
   if (e.key === "Escape") {
@@ -1468,23 +1651,29 @@ document.addEventListener("keydown", function (e) {
     return;
   }
   // once the program is finished, Enter runs it
-  if (finished && e.key === "Enter") {
+  if (finished && compiled && e.key === "Enter") {
     e.preventDefault();
     runDemo();
     return;
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return; // let shortcuts through
+  if (e.repeat) {
+    e.preventDefault(); // holding a key must never stream extra characters
+    return;
+  }
   if (e.key === "Backspace") {
     e.preventDefault();
-    unrevealChars(1);
+    unrevealOne();
     return;
   }
   // any printable key, Enter, Space, Tab — all produce exactly one character
   if (e.key.length === 1 || e.key === "Enter" || e.key === "Tab") {
     e.preventDefault();
-    revealNow(1);
+    revealOne();
   }
 });
+
+restoreSession();
 </script>
 </body>
 </html>
